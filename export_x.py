@@ -179,11 +179,7 @@ def ExportFile(filepath):
 		f.write(str(numNormals) + ";\n")
 		for polygon in mesh_polygons:
 			for vertex in polygon.vertices:
-				if mesh.use_auto_smooth == False:
-					normal = polygon.normal
-				else:
-					normal = mesh.vertices[vertex].normal
-					#normal = polygon.normal
+				normal = polygon.normal
 				f.write(str('%.6f' % normal.x) + ";")
 				f.write(str('%.6f' % normal.z) + ";")
 				f.write(str('%.6f' % normal.y) + ";")
