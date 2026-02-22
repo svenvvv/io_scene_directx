@@ -1,6 +1,6 @@
 # ##### BEGIN ZLIB LICENSE BLOCK #####
 
-# Copyright (c) <2020> <Dodgee Software>
+# Copyright (c) <2026> <Dodgee Software> <svenvvv>
 
 # This software is provided 'as-is', without any express or implied
 # warranty. In no event will the authors be held liable for any damages
@@ -25,88 +25,231 @@
 # <pep8 compliant>
 
 import math
-from math import radians
 import mathutils
 import bpy
-from pathlib import Path
 
 # TODO: Support for vertex colours via mesh.vertex_colors
 # TODO: Do I need to figure out how to do parented meshes (nested transforms)
 
+DEFAULT_MATERIAL_NAME = "DefaultMat"
+
+class XMeshObject():
+    def __init__(self, fd: file, tag: str, parent: XMeshObject = None):
+        self._fd = fd
+        self._tag = tag
+        if parent:
+            self._indent = parent._indent
+        else:
+            self._indent = 0
+
+    def __enter__(self):
+        self.writeln(self._tag)
+        self.writeln("{")
+        self._indent += 1
+        return self
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        self._indent -= 1
+        self.writeln("}")
+
+    def writeln(self, line: str):
+        indent_str = "  " * self._indent
+        self._fd.write(f"{indent_str}{line}\n")
+
+
+def WriteMaterials(f: file, mesh):
+    mesh_materials = mesh.materials[:]
+    for material in mesh_materials:
+        with XMeshObject(f, f"Material {material.name}") as obj_mat:
+            if material.use_nodes == False:
+                print(f"Material {material.name} doesn't use nodes. Doing best to export properties anyway.")
+                # Write Diffuse Colour
+                obj_mat.writeln(str('%.6f' % material.diffuse_color[0]) + ";" + str('%.6f' % material.diffuse_color[1]) + ";" + str('%.6f' % material.diffuse_color[2]) + ";" + str('%.6f' % material.diffuse_color[3]) + ";;")
+                # Write specular cooeffiencnt
+                obj_mat.writeln(str('%.6f' % material.specular_intensity) + ";")
+                # Non-node materials in Blender have no specular colour write a default one here (white)
+                obj_mat.writeln(str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";;")
+                # Non-node materials in Blender have no emissive colour write a default one here (black)
+                obj_mat.writeln(str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";;")
+            else:
+                print("Exporter deliberately and only supports the Specular Material Node in the Shader Graph ")
+                faceColor = [1.0, 1.0, 1.0, 1.0]
+                power = 200.0
+                specularColor = [1.0, 1.0, 1.0, 1.0]
+                emissiveColor = [0.0, 0.0, 0.0, 1.0]
+                tex_filename = None
+                for node in material.node_tree.nodes:
+                    if node.type == 'SCRIPT':
+                        # GRAB THE FACE COLOR
+                        colorSocket = node.inputs[0]
+                        faceColor[0] = colorSocket.default_value[0]
+                        faceColor[1] = colorSocket.default_value[1]
+                        faceColor[2] = colorSocket.default_value[2]
+                        faceColor[3] = colorSocket.default_value[3]
+                        # GRAB THE SPECULAR POWER
+                        floatSocket = node.inputs[1]
+                        # Convert the Roughness into specular cooefficient
+                        power = floatSocket.default_value
+                        # Specular power must be greater than 1
+                        if power < 1.0:
+                            power = 1.0
+                        if power > 800.0:
+                            power = 800.0
+                        # GRAB THE SPECULAR COLOR
+                        colorSocket = node.inputs[2]
+                        specularColor[0] = colorSocket.default_value[0]
+                        specularColor[1] = colorSocket.default_value[1]
+                        specularColor[2] = colorSocket.default_value[2]
+                        specularColor[3] = colorSocket.default_value[3]
+                        # GRAB THE EMISSIVE COLOR
+                        colorSocket = node.inputs[3]
+                        emissiveColor[0] = colorSocket.default_value[0]
+                        emissiveColor[1] = colorSocket.default_value[1]
+                        emissiveColor[2] = colorSocket.default_value[2]
+                        emissiveColor[3] = colorSocket.default_value[3]
+                    if node.type == 'EEVEE_SPECULAR':
+                        # Grab Diffuse colour
+                        colorSocket = node.inputs[0]
+                        faceColor[0] = colorSocket.default_value[0]
+                        faceColor[1] = colorSocket.default_value[1]
+                        faceColor[2] = colorSocket.default_value[2]
+                        faceColor[3] = colorSocket.default_value[3]
+                        colorSocket = node.inputs[1]
+                        # Grab Specular colour
+                        specularColor[0] = colorSocket.default_value[0]
+                        specularColor[1] = colorSocket.default_value[1]
+                        specularColor[2] = colorSocket.default_value[2]
+                        specularColor[3] = colorSocket.default_value[3]
+                        floatSocket = node.inputs[2]
+                        # Convert the Roughness into specular cooefficient
+                        power = (1.0 - floatSocket.default_value) * 800.0
+                        # Specular power must be greater than 1
+                        if power < 1.0:
+                            power = 1.0
+                        if power > 800.0:
+                            power = 800.0
+                        colorSocket = node.inputs[3]
+                        # Grab Emissive colour
+                        emissiveColor[0] = colorSocket.default_value[0]
+                        emissiveColor[1] = colorSocket.default_value[1]
+                        emissiveColor[2] = colorSocket.default_value[2]
+                        emissiveColor[3] = colorSocket.default_value[3]
+                    # If there is a texture grab the filenameandpath
+                    if node.type == 'TEX_IMAGE':
+                        if node.outputs[0].is_linked == True and node.image != None:
+                            image = node.image
+                            path = image.filepath
+                            name = image.name
+                            if path != None and len(path) > 0:
+                                tex_filename = ExtractFilenameFromPath(path)
+                            elif name != None and len(name) > 0:
+                                tex_filename = name
+
+                # Write the Diffuse Colour
+                obj_mat.writeln(str('%.6f' % faceColor[0]) + ";" + str('%.6f' % faceColor[1]) + ";" + str('%.6f' % faceColor[2]) + ";" + str('%.6f' % faceColor[3]) + ";;")
+                # Write the Specular Cooefficient
+                obj_mat.writeln(str('%.6f' % power) + ";")
+                # Write the Specular Colour
+                obj_mat.writeln(str('%.6f' % specularColor[0]) + ";" + str('%.6f' % specularColor[1]) + ";" + str('%.6f' % specularColor[2]) + ";;")
+                # Write the Emissive Colour
+                obj_mat.writeln(str('%.6f' % emissiveColor[0]) + ";" + str('%.6f' % emissiveColor[1]) + ";" + str('%.6f' % emissiveColor[2]) + ";;")
+            # If there is a texture write the TexutreFilename node to the file
+            if tex_filename:
+                with XMeshObject(f, "TextureFilename", obj_mat) as obj_texname:
+                    obj_texname.writeln(f'"{tex_filename}";')
+
+    # If there are no materials then use a default one the file format must define at least one material being material 0
+    if len(mesh_materials) == 0:
+        # TODO: Cannot have spaces investigate valid names
+        with XMeshObject(f, f"Material {DEFAULT_MATERIAL_NAME}") as obj_mat:
+            # Write the Diffuse Colour
+            obj_mat.writeln(str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";;")
+            # Write the Specular Cooefficient
+            obj_mat.writeln(str('%.6f' % 2.0) + ";")
+            # Write the Specular Colour
+            obj_mat.writeln(str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";;")
+            # Write the Emissive Colour
+            obj_mat.writeln(str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";;")
+
 def ExportFile(filepath):
+    # TODO make these configurable from Blender UI
+    inline_materials = False
+    write_templates = False
+    write_frame = False
+
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    # Send a message to the console
     print("Exporting File: " + filepath)
-    # Open the file for export
     f = open(filepath, "w", encoding="utf8", newline="\n")
-    # Write the File Header to the file
+
     WriteHeader(f)
-    # Write all the Template Boiler plate to the file
-    WriteBoilerPlate(f)
+    f.write("\n")
+
+    if write_templates:
+        WriteTemplates(f)
+
     # Go through all the objects in the scene
     for object in bpy.data.objects:
-        # If the object type isn't a mesh then goto the next object
         if object.type != 'MESH':
             continue
-        # Grab the Mesh from the Object
         mesh = object.data
 
-        # WRITE MESH FRAME
-        # Write the Object Name
-        f.write("# " + object.name + "\n")
-        f.write("Frame\n")
-        f.write("{\n")
-
-        # WRITE FRAMETRANSFORMATIONMATRIX
-        f.write("FrameTransformMatrix\n")
-        f.write("{\n")
-        # TODO: Try and replace this with a reusable function
-        # Translation Matrix
-        translationMatrix = mathutils.Matrix.Translation((object.location[0], object.location[2], object.location[1]))
-        # Rotation about the X Axis Matrix
-        #rotationXMatrix = mathutils.Matrix.Rotation((object.rotation_euler[0]), 4, 'X')
-        rotationXMatrix = mathutils.Matrix.Identity(4)
-        rotationXMatrix[1][1] = math.cos(-object.rotation_euler[0])
-        rotationXMatrix[1][2] = -math.sin(-object.rotation_euler[0])
-        rotationXMatrix[2][1] = math.sin(-object.rotation_euler[0])
-        rotationXMatrix[2][2] = math.cos(-object.rotation_euler[0])
-        # Rotation about the Y Axis Matrix
-        #rotationYMatrix = mathutils.Matrix.Rotation((object.rotation_euler[2]), 4, 'Y')
-        rotationYMatrix = mathutils.Matrix.Identity(4)
-        rotationYMatrix[0][0] = math.cos(-object.rotation_euler[2])
-        rotationYMatrix[0][2] = math.sin(-object.rotation_euler[2])
-        rotationYMatrix[2][0] = -math.sin(-object.rotation_euler[2])
-        rotationYMatrix[2][2] = math.cos(-object.rotation_euler[2])
-        # Rotation about the Z Axis Matrix
-        #rotationZMatrix = mathutils.Matrix.Rotation((object.rotation_euler[1]), 4, 'Z')
-        rotationZMatrix = mathutils.Matrix.Identity(4)
-        rotationZMatrix[0][0] = math.cos(-object.rotation_euler[1])
-        rotationZMatrix[0][1] = -math.sin(-object.rotation_euler[1])
-        rotationZMatrix[1][0] = math.sin(-object.rotation_euler[1])
-        rotationZMatrix[1][1] = math.cos(-object.rotation_euler[1])
-        # Scale Matrix
-        scaleXMatrix = mathutils.Matrix.Scale(object.scale[0], 4, (1.0, 0.0, 0.0))
-        scaleYMatrix = mathutils.Matrix.Scale(object.scale[2], 4, (0.0, 1.0, 0.0))
-        scaleZMatrix = mathutils.Matrix.Scale(object.scale[1], 4, (0.0, 0.0, 1.0))
-        # Compute the final Model transformation matrix
-        finalMatrix = mathutils.Matrix(translationMatrix @ rotationYMatrix @ rotationZMatrix @ rotationXMatrix @scaleYMatrix @ scaleZMatrix @ scaleXMatrix)
-        # Compute the matrix to transform the normals
-        normalMatrix = mathutils.Matrix(rotationYMatrix @ rotationZMatrix @ rotationXMatrix)
-        # The DirectX format stores  matrices
-        # in row major format so we transpose the
-        # matrix here before writing
-        finalMatrix.transpose()
-        # Write the Matrix
-        for j in range(0, 4):
-            for i in range(0, 4):
-                f.write(str('%.6f' % finalMatrix[j][i]))
-                if j == 3 and i == 3:
-                    f.write(";;")
-                else:
-                    f.write(",")
+        if not inline_materials:
+            WriteMaterials(f, mesh)
             f.write("\n")
-        f.write("}\n")
+
+        if write_frame:
+            f.write("# " + object.name + "\n")
+            f.write("Frame\n")
+            f.write("{\n")
+
+            f.write("FrameTransformMatrix\n")
+            f.write("{\n")
+            # TODO: Try and replace this with a reusable function
+            translationMatrix = mathutils.Matrix.Translation((object.location[0], object.location[2], object.location[1]))
+            # Rotation about the X Axis Matrix
+            #rotationXMatrix = mathutils.Matrix.Rotation((object.rotation_euler[0]), 4, 'X')
+            rotationXMatrix = mathutils.Matrix.Identity(4)
+            rotationXMatrix[1][1] = math.cos(-object.rotation_euler[0])
+            rotationXMatrix[1][2] = -math.sin(-object.rotation_euler[0])
+            rotationXMatrix[2][1] = math.sin(-object.rotation_euler[0])
+            rotationXMatrix[2][2] = math.cos(-object.rotation_euler[0])
+            # Rotation about the Y Axis Matrix
+            #rotationYMatrix = mathutils.Matrix.Rotation((object.rotation_euler[2]), 4, 'Y')
+            rotationYMatrix = mathutils.Matrix.Identity(4)
+            rotationYMatrix[0][0] = math.cos(-object.rotation_euler[2])
+            rotationYMatrix[0][2] = math.sin(-object.rotation_euler[2])
+            rotationYMatrix[2][0] = -math.sin(-object.rotation_euler[2])
+            rotationYMatrix[2][2] = math.cos(-object.rotation_euler[2])
+            # Rotation about the Z Axis Matrix
+            #rotationZMatrix = mathutils.Matrix.Rotation((object.rotation_euler[1]), 4, 'Z')
+            rotationZMatrix = mathutils.Matrix.Identity(4)
+            rotationZMatrix[0][0] = math.cos(-object.rotation_euler[1])
+            rotationZMatrix[0][1] = -math.sin(-object.rotation_euler[1])
+            rotationZMatrix[1][0] = math.sin(-object.rotation_euler[1])
+            rotationZMatrix[1][1] = math.cos(-object.rotation_euler[1])
+            # Scale Matrix
+            scaleXMatrix = mathutils.Matrix.Scale(object.scale[0], 4, (1.0, 0.0, 0.0))
+            scaleYMatrix = mathutils.Matrix.Scale(object.scale[2], 4, (0.0, 1.0, 0.0))
+            scaleZMatrix = mathutils.Matrix.Scale(object.scale[1], 4, (0.0, 0.0, 1.0))
+            # Compute the final Model transformation matrix
+            finalMatrix = mathutils.Matrix(translationMatrix @ rotationYMatrix @ rotationZMatrix @ rotationXMatrix @scaleYMatrix @ scaleZMatrix @ scaleXMatrix)
+            # Compute the matrix to transform the normals
+            normalMatrix = mathutils.Matrix(rotationYMatrix @ rotationZMatrix @ rotationXMatrix)
+            # The DirectX format stores  matrices
+            # in row major format so we transpose the
+            # matrix here before writing
+            finalMatrix.transpose()
+            # Write the Matrix
+            for j in range(0, 4):
+                for i in range(0, 4):
+                    f.write(str('%.6f' % finalMatrix[j][i]))
+                    if j == 3 and i == 3:
+                        f.write(";;")
+                    else:
+                        f.write(",")
+                f.write("\n")
+            f.write("}\n")
 
         # WRITE THE MESH
         f.write("Mesh " + mesh.name + "\n{" + "\n")
@@ -258,118 +401,14 @@ def ExportFile(filepath):
             else:
                 f.write(str(mesh_polygons[index].material_index) +",\n")
 
-        for material in mesh_materials:
-            f.write("Material "+ material.name + "\n{\n")
-            if material.use_nodes == False:
-                f.write("# This material doesn't use nodes. Doing best to export properties anyway. \n")
-                # Write Diffuse Colour
-                f.write(str('%.6f' % material.diffuse_color[0]) + ";" + str('%.6f' % material.diffuse_color[1]) + ";" + str('%.6f' % material.diffuse_color[2]) + ";" + str('%.6f' % material.diffuse_color[3]) + ";;\n")
-                # Write specular cooeffiencnt
-                f.write(str('%.6f' % material.specular_intensity) + ";\n")
-                # Non-node materials in Blender have no specular colour write a default one here (white)
-                f.write(str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";;\n")
-                # Non-node materials in Blender have no emissive colour write a default one here (black)
-                f.write(str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";;\n")
-            else:
-                f.write("# Exporter deliberately and only supports the Specular Material Node in the Shader Graph \n")
-                #specularNode = node for node in material.node_tree.nodes if node.type == ""
-                faceColor = [1.0, 1.0, 1.0, 1.0]
-                power = 200.0
-                specularColor = [1.0, 1.0, 1.0, 1.0]
-                emissiveColor = [0.0, 0.0, 0.0, 1.0]
-                filenameandpath = ""
-                for node in material.node_tree.nodes:
-                    if node.type == 'SCRIPT':
-                        # GRAB THE FACE COLOR
-                        colorSocket = node.inputs[0]
-                        faceColor[0] = colorSocket.default_value[0]
-                        faceColor[1] = colorSocket.default_value[1]
-                        faceColor[2] = colorSocket.default_value[2]
-                        faceColor[3] = colorSocket.default_value[3]
-                        # GRAB THE SPECULAR POWER
-                        floatSocket = node.inputs[1]
-                        # Convert the Roughness into specular cooefficient
-                        power = floatSocket.default_value
-                        # Specular power must be greater than 1
-                        if power < 1.0:
-                            power = 1.0
-                        if power > 800.0:
-                            power = 800.0
-                        # GRAB THE SPECULAR COLOR
-                        colorSocket = node.inputs[2]
-                        specularColor[0] = colorSocket.default_value[0]
-                        specularColor[1] = colorSocket.default_value[1]
-                        specularColor[2] = colorSocket.default_value[2]
-                        specularColor[3] = colorSocket.default_value[3]
-                        # GRAB THE EMISSIVE COLOR
-                        colorSocket = node.inputs[3]
-                        emissiveColor[0] = colorSocket.default_value[0]
-                        emissiveColor[1] = colorSocket.default_value[1]
-                        emissiveColor[2] = colorSocket.default_value[2]
-                        emissiveColor[3] = colorSocket.default_value[3]
-                    if node.type == 'EEVEE_SPECULAR':
-                        # Grab Diffuse colour
-                        colorSocket = node.inputs[0]
-                        faceColor[0] = colorSocket.default_value[0]
-                        faceColor[1] = colorSocket.default_value[1]
-                        faceColor[2] = colorSocket.default_value[2]
-                        faceColor[3] = colorSocket.default_value[3]
-                        colorSocket = node.inputs[1]
-                        # Grab Specular colour
-                        specularColor[0] = colorSocket.default_value[0]
-                        specularColor[1] = colorSocket.default_value[1]
-                        specularColor[2] = colorSocket.default_value[2]
-                        specularColor[3] = colorSocket.default_value[3]
-                        floatSocket = node.inputs[2]
-                        # Convert the Roughness into specular cooefficient
-                        power = (1.0 - floatSocket.default_value) * 800.0
-                        # Specular power must be greater than 1
-                        if power < 1.0:
-                            power = 1.0
-                        if power > 800.0:
-                            power = 800.0
-                        colorSocket = node.inputs[3]
-                        # Grab Emissive colour
-                        emissiveColor[0] = colorSocket.default_value[0]
-                        emissiveColor[1] = colorSocket.default_value[1]
-                        emissiveColor[2] = colorSocket.default_value[2]
-                        emissiveColor[3] = colorSocket.default_value[3]
-                    # If there is a texture grab the filenameandpath
-                    if node.type == 'TEX_IMAGE':
-                        if node.outputs[0].is_linked == True:
-                            image = node.image
-                            if image != None:
-                                filenameandpath = image.filepath
-                # Write the Diffuse Colour
-                f.write(str('%.6f' % faceColor[0]) + ";" + str('%.6f' % faceColor[1]) + ";" + str('%.6f' % faceColor[2]) + ";" + str('%.6f' % faceColor[3]) + ";;\n")
-                # Write the Specular Cooefficient
-                f.write(str('%.6f' % power) + ";\n")
-                # Write the Specular Colour
-                f.write(str('%.6f' % specularColor[0]) + ";" + str('%.6f' % specularColor[1]) + ";" + str('%.6f' % specularColor[2]) + ";;\n")
-                # Write the Emissive Colour
-                f.write(str('%.6f' % emissiveColor[0]) + ";" + str('%.6f' % emissiveColor[1]) + ";" + str('%.6f' % emissiveColor[2]) + ";;\n")
-            # If there is a texture write the TexutreFilename node to the file
-            if len(filenameandpath):
-                f.write("TextureFilename\n{\n")
-                #f.write("\"" + Path(filenameandpath).name + "\"" + ";\n")
-                f.write("\"" + ExtractFilenameFromPath(filenameandpath) + "\"" + ";\n")
-                f.write("}\n")
+        if inline_materials:
+            WriteMaterials(f, mesh)
+        else:
+            material_names = [material.name for material in mesh_materials]
+            if len(material_names) == 0:
+                material_names = [DEFAULT_MATERIAL_NAME]
+            f.write("{ " + ",".join(material_names) + " }\n")
 
-        # If there are no materials then use a default one
-        # the file format must define at least one material
-        # being material 0
-        if len(mesh_materials) == 0:
-            # Create the default Material Node give it a name TODO: Cannot have spaces investigate valid names
-            f.write("Material "+ "DefaultMaterial" + "\n{\n")
-            # Write the Diffuse Colour
-            f.write(str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";;\n")
-            # Write the Specular Cooefficient
-            f.write(str('%.6f' % 2.0) + ";\n")
-            # Write the Specular Colour
-            f.write(str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";" + str('%.6f' % 1.0) + ";;\n")
-            # Write the Emissive Colour
-            f.write(str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";" + str('%.6f' % 0.0) + ";;\n")
-            f.write("}\n")
         f.write("}" + "\n")
 
         # if there is an armature modifier then write
@@ -523,7 +562,6 @@ def ExportFile(filepath):
                     WriteBoneAndChildren(f, rootBone)
 
         f.write("}\n")
-        f.write("}\n")
         f.write("\n")
 
         if object.modifiers.find("Armature") is not -1:
@@ -638,14 +676,8 @@ def ExtractFilenameFromPath(filenameandpath):
 
 def WriteHeader(f):
     f.write("xof 0302txt 0032\n")
-    #f.write("Header {1; 0; 1;}\n") # TODO: This really isn't necessary should we remove this?
-    #f.write("\n")
-    f.write("# Created by DodgeeSoftware's DirectX Model Exporter\n")
-    f.write("# Website: www.dodgeesoftware.com\n")
-    f.write("# Email: dodgeesoftware@gmail.com\n")
-    f.write("\n")
 
-def WriteBoilerPlate(f):
+def WriteTemplates(f):
     f.write("template Header\n")
     f.write("{\n")
     f.write("    <3D82AB43-62DA-11cf-AB39-0020AF71E433>\n")
@@ -829,97 +861,6 @@ def WriteBoilerPlate(f):
     f.write("    Matrix4x4 matrixOffset;\n")
     f.write("}\n\n")
 
-
-# *****************************************
-# * FUNCTIONS WHICH WRITE A SINGLE OBJECT *
-# *****************************************
-
-def WriteBool(f, value):
-    print("not implemented yet")
-
-def WriteBool2D(f, value):
-    print("not implemented yet")
-
-def WriteInt(f, value):
-    print("not implemented yet")
-
-def WriteFloat(f, value):
-    print("not implemented yet")
-
-def WriteString(f, text):
-    print("not implemented yet")
-
-def WriteVector(f, vector):
-    print("not implemented yet")
-
-def WriteVertex(f, vertex):
-    print("not implemented yet")
-
-def WriteColourRGB(f, colour):
-    print("not implemented yet")
-
-def WriteColourRGBA(f, colour):
-    print("not implemented yet")
-
-def WriteColourIndexed(f, colour):
-    print("not implemented yet")
-
-def WriteMatrix4x4(f, matrix):
-    print("not implemented yet")
-
-def WriteQuaternion(f, quaternion):
-    print("not implemented yet")
-
-def WriteBone(f, bone):
-    print("not implemented yet")
-
-def WriteMeshFace(f, face):
-    print("not implemented yet")
-
-def WriteMeshTextureCoords(f, textureCoords):
-    print("not implemented yet")
-
-def WriteMeshMaterialList(f, materialList):
-    print("not implemented yet")
-
-def WriteMeshNormals(f, meshNormals):
-    print("not implemented yet")
-
-def WriteVertextColours(f, meshVertexColours):
-    print("not implemented yet")
-
-def WriteTextureFilename(f, textureFilename):
-    print("not implemented yet")
-
-def WriteMaterial(f, material):
-    print("not implemented yet")
-
-def WriteMesh(f, mesh):
-    print("not implemented yet")
-
-def WriteFrameTransformMatrix(f, frameTransformMatrix):
-    print("not implemented yet")
-
-def WriteFrame(f, frame):
-    print("not implemented yet")
-
-def WriteFloatKeys(f, floatKeys):
-    print("not implemented yet")
-
-def WriteTimedFloatKeys(f, timedFloatKeys):
-    print("not implemented yet")
-
-def WriteAnimationKey(f, animationKey):
-    print("not implemented yet")
-
-def WriteAnimationOptions(f, animationOptions):
-    print("not implemented yet")
-
-def WriteAnimation(f, animation):
-    print("not implemented yet")
-
-def WriteAnimationSet(f, animationSet):
-    print("not implemented yet")
 
 def WriteBoneAndChildren(f, bone):
     # write its frame node
