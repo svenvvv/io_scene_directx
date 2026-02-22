@@ -26,15 +26,15 @@
 
 # The bl_info is a meta field used by Blender to describe this addon
 bl_info = {
-	"name": "DirectX X Format",
-	"author": "Dodgee Software",
-	"version": (0, 0, 1),
-	"blender": (2, 80, 0),
-	"location": "File > Export > DirectX (.x)",
-	"description": "Export mesh vertices, UV's, materials, textures, "
-				   "vertex colors, armatures, empties, and actions.",
-	"wiki_url": "https://dodgeesoftware.com.au",
-	"category": "Import-Export"}
+    "name": "DirectX X Format",
+    "author": "Dodgee Software",
+    "version": (0, 0, 1),
+    "blender": (2, 80, 0),
+    "location": "File > Export > DirectX (.x)",
+    "description": "Export mesh vertices, UV's, materials, textures, "
+                   "vertex colors, armatures, empties, and actions.",
+    "wiki_url": "https://dodgeesoftware.com.au",
+    "category": "Import-Export"}
 
 from .import_x import *
 from .export_x import *
@@ -44,81 +44,81 @@ from bpy.props import BoolProperty
 from bpy.props import EnumProperty
 from bpy.props import StringProperty
 from bpy.props import (
-		StringProperty,
-		BoolProperty,
-		FloatProperty,
-		EnumProperty,
-		)
+        StringProperty,
+        BoolProperty,
+        FloatProperty,
+        EnumProperty,
+        )
 from bpy_extras.io_utils import (
-		ImportHelper,
-		ExportHelper,
-		orientation_helper,
-		path_reference_mode,
-		axis_conversion,
-		)
+        ImportHelper,
+        ExportHelper,
+        orientation_helper,
+        path_reference_mode,
+        axis_conversion,
+        )
 
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportX(bpy.types.Operator, ImportHelper):
-	"""Load a X file"""
-	bl_idname = "import_scene.x"
-	bl_label = "Import X"
-	bl_options = {'UNDO', 'PRESET'}
+    """Load a X file"""
+    bl_idname = "import_scene.x"
+    bl_label = "Import X"
+    bl_options = {'UNDO', 'PRESET'}
 
-	directory: StringProperty()
+    directory: StringProperty()
 
-	filename_ext = ".x"
-	filter_glob: StringProperty(default="*.x", options={'HIDDEN'})
-	
-	def draw(self, context):
-		layout = self.layout
+    filename_ext = ".x"
+    filter_glob: StringProperty(default="*.x", options={'HIDDEN'})
 
-	def execute(self, context):
-		return ImportFile(self.filepath)
+    def draw(self, context):
+        layout = self.layout
+
+    def execute(self, context):
+        return ImportFile(self.filepath)
 
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ExportX(bpy.types.Operator, ExportHelper):
-	"""Write a X file"""
-	bl_idname = "export_scene.x"
-	bl_label = "Export X"
-	bl_options = {'UNDO', 'PRESET'}
+    """Write a X file"""
+    bl_idname = "export_scene.x"
+    bl_label = "Export X"
+    bl_options = {'UNDO', 'PRESET'}
 
-	filename_ext = ".x"
-	filter_glob: StringProperty(default="*.x", options={'HIDDEN'})
-	
-	def draw(self, context):
-		layout = self.layout
-	
-	@property
-	def check_extension(self):
-		return True
-	
-	def execute(self, context):
-		return ExportFile(self.filepath)
+    filename_ext = ".x"
+    filter_glob: StringProperty(default="*.x", options={'HIDDEN'})
+
+    def draw(self, context):
+        layout = self.layout
+
+    @property
+    def check_extension(self):
+        return True
+
+    def execute(self, context):
+        return ExportFile(self.filepath)
 
 def menu_func_import(self, context):
-	self.layout.operator(ImportX.bl_idname, text="DirectX X (.x)")
+    self.layout.operator(ImportX.bl_idname, text="DirectX X (.x)")
 
 def menu_func_export(self, context):
-	self.layout.operator(ExportX.bl_idname, text="DirectX X (.x)")
+    self.layout.operator(ExportX.bl_idname, text="DirectX X (.x)")
 
 classes = (
-	ExportX,
-	ImportX
+    ExportX,
+    ImportX
 )
 
 def register():
-	print("Registering plugin: io_scene_directx")
-	for cls in classes:
-		bpy.utils.register_class(cls)
-	bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-	bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
+    print("Registering plugin: io_scene_directx")
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
-	print("Deregistering plugin: io_scene_directx")
-	for cls in classes:
-		bpy.utils.unregister_class(cls)
-	bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-	bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    print("Deregistering plugin: io_scene_directx")
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
 
 if __name__ == "__main__":
-	register()
+    register()

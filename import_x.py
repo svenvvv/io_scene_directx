@@ -25,8 +25,8 @@
 # <pep8 compliant>
 
 def ImportFile(filepath):
-	f = open(filepath,"r")
-	contents = f.read()
-	print(contents)
-	f.close()
-	return {'FINISHED'}
+    f = open(filepath,"r")
+    contents = f.read()
+    print(contents)
+    f.close()
+    return {'FINISHED'}
