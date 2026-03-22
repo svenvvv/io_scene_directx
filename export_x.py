@@ -79,6 +79,8 @@ def SanitizeMeshName(name: str):
 def WriteMaterials(f: file, mesh):
     mesh_materials = mesh.materials[:]
     for material in mesh_materials:
+        if material is None:
+            continue
         with XMeshObject(f, f"Material {material.name}") as obj_mat:
             if material.use_nodes == False:
                 print(
